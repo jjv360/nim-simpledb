@@ -1,5 +1,7 @@
 # SimpleDB
 
+![](https://img.shields.io/badge/status-beta-orange)
+
 A very simple NoSQL JSON document database written on top of SQLite.
 
 ## Usage
