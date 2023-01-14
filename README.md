@@ -1,6 +1,7 @@
 # SimpleDB
 
 ![](https://img.shields.io/badge/status-beta-orange)
+![](https://img.shields.io/badge/platforms-native%20only-orange)
 
 A very simple NoSQL JSON document database written on top of SQLite.
 
@@ -27,7 +28,7 @@ var doc = db.get("1234")
 # Fetch a document with a query
 var doc = db.query().where("type", "==", "example").get()
 
-# Fetch a list of items with a query
+# Fetch a list of documents with a query
 var docs = db.query()
     .where("timestamp", ">=", 1000)
     .where("timestamp", "<=", 2000)
@@ -35,12 +36,9 @@ var docs = db.query()
     .offset(2)
     .list()
 
-# Iterate through documents
-for doc in db.query().where("type", "==", "example").list():
-    echo $doc
-
-# Delete items
-db.query().where("type", "==", "example").delete()
+# Delete documents
+db.remove("1234")
+db.query().where("type", "==", "example").remove()
 
 # Batch modifications
 db.batch:

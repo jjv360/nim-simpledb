@@ -153,37 +153,6 @@ class SimpleDB:
                 this.extraColumns.add(columnName)
 
 
-    ## Put a new document
-    method put(document: JsonNode) =
-
-        # Check input
-        if document == nil: raiseAssert("Cannot put a null document into the database.")
-        if document{"id"}.isNil: document["id"] = % $genOid()
-        if document{"id"}.kind != JString: raiseAssert("ID must be a string.")
-
-        # Prepare database
-        this.prepareDB()
-
-        # Create query including all fields
-        let str = "INSERT OR REPLACE INTO documents (_json, " & this.extraColumns.join(", ") & ") VALUES (?, " & this.extraColumns.mapIt("?").join(", ") & ")"
-        let cmd = sql(str)
-
-        # First field is the JSON content
-        var args = @[ $document ]
-
-        # Add fields for the extra columns
-        for columnName in this.extraColumns:
-
-            # Get field name by removing the sql suffix
-            let fieldName = columnName.substr(0, columnName.len - 6)
-
-            # Add it
-            args.add document{fieldName}.getStr()
-
-        # Bind and execute the query
-        this.conn.exec(cmd, args)
-
-
     ## Execute a batch of transactions. Either they all succeed, or the database will not be updated. This is also much faster when saving lots of documents at once.
     method batch(code: proc()) =
 
@@ -317,7 +286,7 @@ class SimpleDB:
 
 
 ## Execute the query and return all documents.
-proc prepareSelect(this: SimpleDBQuery, sqlPrefix: string): SqlPrepared =
+proc prepareQuerySql(this: SimpleDBQuery, sqlPrefix: string): (string, seq[string]) =
 
     # Get database reference
     let db = cast[SimpleDB](this.db)
@@ -374,9 +343,7 @@ proc prepareSelect(this: SimpleDBQuery, sqlPrefix: string): SqlPrepared =
         db.createIndex(this)
 
         # Done, prepare and bind the query
-        var prepared = db.conn.prepare(sqlStr)
-        for i in 0 ..< bindValues.len: prepared.bindParam(i+1, bindValues[i])
-        return prepared
+        return (sqlStr, bindValues)
 
 
 ## Execute the query and return all documents.
@@ -386,11 +353,11 @@ proc list*(this: SimpleDBQuery): seq[JsonNode] =
     let db = cast[SimpleDB](this.db)
 
     # Prepare the query
-    let preparedSql = prepareSelect(this, "SELECT _json FROM documents")
+    let (sqlStr, bindValues) = prepareQuerySql(this, "SELECT _json FROM documents")
 
     # Run the query
     var docs : seq[JsonNode]
-    for row in db.conn.rows(preparedSql):
+    for row in db.conn.rows(sql(sqlStr), bindValues):
 
         # Parse JSON for each result
         docs.add(parseJson(row[0]))
@@ -406,10 +373,10 @@ iterator list*(this: SimpleDBQuery): JsonNode =
     let db = cast[SimpleDB](this.db)
 
     # Prepare the query
-    let preparedSql = prepareSelect(this, "SELECT _json FROM documents")
+    let (sqlStr, bindValues) = prepareQuerySql(this, "SELECT _json FROM documents")
 
     # Run the query
-    for row in db.conn.rows(preparedSql):
+    for row in db.conn.rows(sql(sqlStr), bindValues):
 
         # Parse JSON for each result and yield it
         yield parseJson(row[0])
@@ -422,10 +389,10 @@ proc remove*(this: SimpleDBQuery): int {.discardable.} =
     let db = cast[SimpleDB](this.db)
 
     # Prepare the query
-    let preparedSql = prepareSelect(this, "DELETE FROM documents")
+    let (sqlStr, bindValues) = prepareQuerySql(this, "DELETE FROM documents")
 
     # Run the query
-    return int db.conn.execAffectedRows(preparedSql)
+    return int db.conn.execAffectedRows(sql(sqlStr), bindValues)
 
 
 ## Execute the query and return the first document found, or null if not found.
@@ -447,6 +414,68 @@ proc get*(this: SimpleDB, id: string): JsonNode =
     return this.query().where("id", "==", id).get()
 
 
-## Helper: Remove a document with the specified ID
-proc remove*(this: SimpleDB, id: string): int {.discardable.} = 
-    return this.query().where("id", "==", id).remove()
+## Helper: Remove a document with the specified ID. Returns true if the document was removed, or false if no document was found with this ID.
+proc remove*(this: SimpleDB, id: string): bool {.discardable.} = 
+    let numRemoved = this.query().where("id", "==", id).limit(1).remove()
+    return if numRemoved > 0: true else: false
+
+## Put a new document into the database, or replace it if it already exists
+proc writeDocument(this: SimpleDB, document: JsonNode) =
+
+    # Check input
+    if document == nil: raiseAssert("Cannot put a null document into the database.")
+    if document.kind != JObject: raiseAssert("Document must be an object.")
+    if document{"id"}.isNil: document["id"] = % $genOid()
+    if document{"id"}.kind != JString: raiseAssert("ID must be a string.")
+
+    # Prepare database
+    this.prepareDB()
+
+    # Create query including all fields
+    let str = "INSERT OR REPLACE INTO documents (_json, " & this.extraColumns.join(", ") & ") VALUES (?, " & this.extraColumns.mapIt("?").join(", ") & ")"
+    let cmd = sql(str)
+
+    # First field is the JSON content
+    var args = @[ $document ]
+
+    # Add fields for the extra columns
+    for columnName in this.extraColumns:
+
+        # Get field name by removing the sql suffix
+        let fieldName = columnName.substr(0, columnName.len - 6)
+
+        # Add it
+        args.add document{fieldName}.getStr()
+
+    # Bind and execute the query
+    this.conn.exec(cmd, args)
+
+
+## Put a new document into the database, merging the fields if it already exists
+proc put*(this: SimpleDB, document: JsonNode, merge: bool = false) =
+
+    # If not merging, just write it
+    if not merge:
+        this.writeDocument(document)
+
+    # Check input
+    if document == nil: raiseAssert("Cannot put a null document into the database.")
+    if document.kind != JObject: raiseAssert("Document must be an object.")
+    if document{"id"}.isNil: 
+        this.writeDocument(document)
+        return
+    if document{"id"}.kind != JString: raiseAssert("ID must be a string.")
+
+    # Get existing document, or just save it normally if not found
+    let id = document["id"].getStr()
+    var existingDoc = this.get(id)
+    if existingDoc == nil:
+        this.writeDocument(document)
+        return
+        
+    # Merge new fields
+    for key, value in document.pairs:
+        existingDoc[key] = value
+
+    # Write it
+    this.writeDocument(existingDoc)

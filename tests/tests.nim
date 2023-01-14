@@ -28,10 +28,18 @@ test "Remove existing database"
 if fileExists("test.db"):
     removeFile("test.db")
 
+
+
+
+
 # Open the database
 group "Database tests"
 test "Open database"
 var db = SimpleDB.init("test.db")
+
+
+
+
 
 # Add a document
 test "Add a document"
@@ -40,8 +48,12 @@ db.put(%* {
     "type": "replaced",
 })
 
+
+
+
+
 # Update a document
-test "Update a document"
+test "Replace a document"
 db.put(%* {
     "id": "1234",
     "type": "example",
@@ -51,6 +63,27 @@ db.put(%* {
     "otherInfo": nil
 })
 
+
+
+
+
+# Merge update a document
+test "Update a document"
+db.put(%* {
+    "id": "1234",
+    "otherInfo": "test"
+}, merge = true)
+
+# Test it
+let exampleDoc = db.get("1234")
+if exampleDoc{"type"}.getStr() != "example": raiseAssert("Wrong document returned.")
+if exampleDoc{"otherInfo"}.getStr() != "test": raiseAssert("Merged content was not saved.")
+if exampleDoc{"data"}.getStr() != "123456": raiseAssert("Content was not merged correctly.")
+
+
+
+
+
 # Batch add documents
 test "Batch updates"
 randomize()
@@ -59,10 +92,18 @@ db.batch:
     for i in 0 .. batchedCount:
         db.put(%* { "type": "batched", "index": i, "random": rand(1.0) })
 
+
+
+
+
 # Close and reopen the database
 test "Close and reopen database"
 db.close()
 db = SimpleDB.init("test.db")
+
+
+
+
 
 # Fetch a specific document
 test "Fetch a document by ID"
@@ -71,6 +112,10 @@ let doc = db.get("1234")
 # Test results
 if doc == nil: raiseAssert("Unable to read document.")
 if doc{"type"}.getStr() != "example": raiseAssert("Invalid data")
+
+
+
+
 
 # Do a complex query
 test "Complex queries"
@@ -88,7 +133,11 @@ if docs.len != 2: raiseAssert("Wrong number of documents returned")
 if docs[0]["index"].getInt() != 114: raiseAssert("Wrong document returned")
 if docs[1]["index"].getInt() != 113: raiseAssert("Wrong document returned")
 
-# Iterator proc test
+
+
+
+
+# Iterator test
 test "Iterator"
 var count = 0
 for doc in db.query().where("type", "==", "batched").list():
@@ -96,9 +145,17 @@ for doc in db.query().where("type", "==", "batched").list():
     if doc{"type"}.getStr() != "batched": raiseAssert("Wrong document returned")
     if count > 5: break
 
+
+
+
+
 # Delete a single item
 test "Delete a single document"
 db.remove("1234")
+
+
+
+
 
 # Delete multiple items
 test "Delete multiple documents"
