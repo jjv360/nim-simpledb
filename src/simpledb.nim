@@ -96,6 +96,7 @@ class SimpleDBQuery:
 
         # Store it
         this.pOffset = count
+        return this
 
 
 
@@ -157,12 +158,14 @@ class SimpleDB:
 
         # Check input
         if document == nil: raiseAssert("Cannot put a null document into the database.")
+        if document{"id"}.isNil: document["id"] = % $genOid()
+        if document{"id"}.kind != JString: raiseAssert("ID must be a string.")
 
         # Prepare database
         this.prepareDB()
 
         # Create query including all fields
-        let str = "INSERT INTO documents (_json, " & this.extraColumns.join(", ") & ") VALUES (?, " & this.extraColumns.mapIt("?").join(", ") & ")"
+        let str = "INSERT OR REPLACE INTO documents (_json, " & this.extraColumns.join(", ") & ") VALUES (?, " & this.extraColumns.mapIt("?").join(", ") & ")"
         let cmd = sql(str)
 
         # First field is the JSON content
@@ -170,7 +173,12 @@ class SimpleDB:
 
         # Add fields for the extra columns
         for columnName in this.extraColumns:
-            args.add document{columnName}.getStr()
+
+            # Get field name by removing the sql suffix
+            let fieldName = columnName.substr(0, columnName.len - 6)
+
+            # Add it
+            args.add document{fieldName}.getStr()
 
         # Bind and execute the query
         this.conn.exec(cmd, args)
@@ -230,16 +238,20 @@ class SimpleDB:
             this.conn.exec(sql(str))
 
             # Fetch all existing documents ... this is heavy, but we can't iterate and modify at the same time
-            let sqlAllRows = sql"SELECT id, _json FROM documents"
-            let sqlUpdateRow = sql("UPDATE documents SET \"" & sqlName & "\" = ? WHERE id = ?")
-            for row in this.conn.getAllRows(sqlAllRows):
+            let sqlUpdateRow = sql("UPDATE documents SET \"" & sqlName & "\" = ? WHERE id_TEXT = ?")
+            for row in this.conn.getAllRows(sql"SELECT id_TEXT, _json FROM documents"):
 
                 # Parse this document
                 let id = row[0]
                 let json = parseJson(row[1])
 
                 # Get field value
-                let value = json{name}.getStr()
+                let node = json{name}
+                var value = ""
+                if node.isNil: value = ""
+                elif node.kind == JString: value = node.getStr()
+                elif node.kind == JFloat: value = $node.getFloat()
+                elif node.kind == JInt: value = $node.getInt()
 
                 # Set row value
                 if value.len > 0:
@@ -305,14 +317,14 @@ class SimpleDB:
 
 
 ## Execute the query and return all documents.
-proc prepareSelect(this: SimpleDBQuery): SqlPrepared =
+proc prepareSelect(this: SimpleDBQuery, sqlPrefix: string): SqlPrepared =
 
     # Get database reference
     let db = cast[SimpleDB](this.db)
     
     # Build query
     var bindValues : seq[string]
-    var sqlStr = "SELECT _json FROM documents"
+    var sqlStr = sqlPrefix
 
     # Add filters
     if this.filters.len > 0:
@@ -363,7 +375,7 @@ proc prepareSelect(this: SimpleDBQuery): SqlPrepared =
 
         # Done, prepare and bind the query
         var prepared = db.conn.prepare(sqlStr)
-        for i in 0 ..< bindValues.len: prepared.bindParam(i, bindValues[i])
+        for i in 0 ..< bindValues.len: prepared.bindParam(i+1, bindValues[i])
         return prepared
 
 
@@ -374,7 +386,7 @@ proc list*(this: SimpleDBQuery): seq[JsonNode] =
     let db = cast[SimpleDB](this.db)
 
     # Prepare the query
-    let preparedSql = prepareSelect(this)
+    let preparedSql = prepareSelect(this, "SELECT _json FROM documents")
 
     # Run the query
     var docs : seq[JsonNode]
@@ -394,13 +406,26 @@ iterator list*(this: SimpleDBQuery): JsonNode =
     let db = cast[SimpleDB](this.db)
 
     # Prepare the query
-    let preparedSql = prepareSelect(this)
+    let preparedSql = prepareSelect(this, "SELECT _json FROM documents")
 
     # Run the query
     for row in db.conn.rows(preparedSql):
 
         # Parse JSON for each result and yield it
         yield parseJson(row[0])
+
+
+## Remove the documents matched by this query.
+proc remove*(this: SimpleDBQuery): int {.discardable.} =
+
+    # Get database reference
+    let db = cast[SimpleDB](this.db)
+
+    # Prepare the query
+    let preparedSql = prepareSelect(this, "DELETE FROM documents")
+
+    # Run the query
+    return int db.conn.execAffectedRows(preparedSql)
 
 
 ## Execute the query and return the first document found, or null if not found.
@@ -418,4 +443,10 @@ proc get*(this: SimpleDBQuery): JsonNode =
 
 
 ## Helper: Get a document with the specified ID, or return nil if not found
-proc get*(this: SimpleDB, id: string): JsonNode = this.query().where("id", "==", id).get()
+proc get*(this: SimpleDB, id: string): JsonNode =
+    return this.query().where("id", "==", id).get()
+
+
+## Helper: Remove a document with the specified ID
+proc remove*(this: SimpleDB, id: string): int {.discardable.} = 
+    return this.query().where("id", "==", id).remove()

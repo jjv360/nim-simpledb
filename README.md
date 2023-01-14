@@ -1,6 +1,6 @@
 # SimpleDB
 
-A simple NoSQL document database written on top of SQLite.
+A very simple NoSQL JSON document database written on top of SQLite.
 
 ## Usage
 
@@ -33,6 +33,10 @@ var docs = db.query()
     .offset(2)
     .list()
 
+# Iterate through documents
+for doc in db.query().where("type", "==", "example").list():
+    echo $doc
+
 # Delete items
 db.query().where("type", "==", "example").delete()
 
@@ -45,3 +49,5 @@ db.batch:
 # Close the database
 db.close()
 ```
+
+See [tests.nim](tests/tests.nim) for more examples.

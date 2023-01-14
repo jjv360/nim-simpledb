@@ -2,7 +2,7 @@
 
 version       = "0.1.0"
 author        = "jjv360"
-description   = "A simple NoSQL document database"
+description   = "A simple NoSQL JSON document database"
 license       = "MIT"
 srcDir        = "src"
 
