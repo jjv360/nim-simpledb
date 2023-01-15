@@ -11,3 +11,15 @@ srcDir        = "src"
 
 requires "nim >= 1.6.10"
 requires "classes >= 0.2.13"
+
+
+# Test script
+task test, "Test":
+
+    # Compile a native and JavaScript binary
+    exec "nim compile --out:test.exe --path:src test.nim "
+    exec "nim js --out:test.js --path:src test.nim"
+
+    # Run the compiled binaries
+    exec "./test.exe"
+    exec "chromerunner --headless ./test.js"

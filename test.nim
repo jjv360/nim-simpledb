@@ -9,24 +9,47 @@ import simpledb
 import std/times
 import std/json
 import std/random
-import std/os
-import std/terminal
+import std/strutils
+
+
+
+# Platform specific imports
+when defined(js):
+
+    # Code for Javascript
+    const fgBlue = "\u001b[34m"
+    const fgGreen = "\u001b[32m"
+    const fgRed = "\u001b[31m"
+    const fgDefault = "\u001b[0m"
+    proc styledEcho(v: varargs[string]) = echo v.join("")
+
+    const platformName = "js"
+
+else:
+
+    # Native code
+    import std/os
+    import std/terminal
+    
+    const platformName = "native"
+
 
 
 
 # Helpers for testing
-proc group(str: string) = styledEcho "\n", fgBlue, "+ ", fgDefault, str
 proc test(str: string) = styledEcho fgGreen, "  + ", fgDefault, str
 proc warn(str: string) = styledEcho fgRed, "    ! ", fgDefault, str
-
-
+proc group(str: string) = 
+    styledEcho " "
+    styledEcho fgBlue, "+ ", fgDefault, str, " (" & platformName & " compiler)"
 
 
 # Remove existing database if it exists
-group "Cleanup"
-test "Remove existing database"
-if fileExists("test.db"):
-    removeFile("test.db")
+when not defined(js):
+    group "Cleanup"
+    test "Remove existing database"
+    if fileExists("test.db"):
+        removeFile("test.db")
 
 
 
@@ -166,3 +189,8 @@ let removedCount = db.query()
 
 # Test results
 if removedCount != batchedCount - 100: raiseAssert("Different number of documents were removed than expected. expected=" & $(batchedCount - 100) & " removed=" & $removedCount)
+
+# Close the window after testing if in browser
+when defined(js):
+    proc windowClose() {.importjs: "window.close()"}
+    windowClose()

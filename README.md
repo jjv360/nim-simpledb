@@ -50,4 +50,4 @@ db.batch:
 db.close()
 ```
 
-See [tests.nim](tests/tests.nim) for more examples.
+See [test.nim](test.nim) for more examples.
