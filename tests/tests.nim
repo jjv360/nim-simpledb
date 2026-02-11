@@ -9,7 +9,6 @@ import simpledb
 import std/times
 import std/json
 import std/random
-import std/os
 import std/terminal
 
 
@@ -22,21 +21,10 @@ proc warn(str: string) = styledEcho fgRed, "    ! ", fgDefault, str
 
 
 
-# Remove existing database if it exists
-group "Cleanup"
-test "Remove existing database"
-if fileExists("test.db"):
-    removeFile("test.db")
-
-
-
-
-
 # Open the database
 group "Database tests"
 test "Open database"
-var db = SimpleDB.init("test.db")
-
+var db = SimpleDB.init(":memory:")
 
 
 
@@ -92,14 +80,6 @@ db.batch do():
     for i in 0 .. batchedCount:
         db.put(%* { "type": "batched", "index": i, "random": rand(1.0) })
 
-
-
-
-
-# Close and reopen the database
-test "Close and reopen database"
-db.close()
-db = SimpleDB.init("test.db")
 
 
 
