@@ -419,6 +419,91 @@ proc remove*(this: SimpleDB, id: string): bool {.discardable.} =
     let numRemoved = this.query().where("id", "==", id).limit(1).remove()
     return if numRemoved > 0: true else: false
 
+
+## Update the documents matched by this query with the given fields. Returns the number of documents updated.
+proc update*(this: SimpleDBQuery, updates: JsonNode): int {.discardable.} =
+
+    # Check input
+    if updates == nil: raiseAssert("Cannot update with null document.")
+    if updates.kind != JObject: raiseAssert("Updates must be an object.")
+    if updates.len == 0: return 0
+
+    # Get database reference
+    let db = cast[SimpleDB](this.db)
+
+    # Build SET clause with json_set for each field
+    var jsonSetExpr = "_json"
+    var setFields: seq[string] = @[]
+    var setValues: seq[string] = @[]
+    
+    for key, value in updates.pairs:
+        # Skip id field updates
+        if key == "id": continue
+        
+        # Build json_set expression - use $$ to escape $ for strutils.% operator
+        let jsonValue = if value.kind == JString: "\"" & value.getStr() & "\""
+                        else: $value
+        let jsonPath = "$$.$1" % key
+        jsonSetExpr = "json_set(" & jsonSetExpr & ", '" & jsonPath & "', " & jsonValue & ")"
+        
+        # Track which index columns need to be updated
+        var sqlType = "TEXT"
+        var sqlValue = ""
+        if value.kind == JInt or value.kind == JFloat:
+            sqlType = "REAL"
+            sqlValue = if value.kind == JInt: $value.getInt() else: $value.getFloat()
+        elif value.kind == JString:
+            sqlValue = value.getStr()
+        elif value.kind == JBool:
+            sqlValue = if value.getBool(): "true" else: "false"
+        elif value.kind == JNull:
+            sqlValue = ""
+        else:
+            sqlValue = $value
+        
+        let sqlName = key & "_" & sqlType
+        setFields.add(sqlName)
+        setValues.add(sqlValue)
+        
+        # Ensure column exists for indexing
+        db.createIndexableColumnForField(key, sqlName, sqlType)
+
+    # Build the full SQL
+    var sqlStr = "UPDATE documents SET _json = " & jsonSetExpr
+    
+    # Add index column updates
+    for i, field in setFields:
+        sqlStr &= ", \"" & field & "\" = ?"
+    
+    # Add WHERE clause
+    var bindValues: seq[string] = @[]
+    if this.filters.len > 0:
+        sqlStr &= " WHERE "
+        var addedFirst = false
+        for filter in this.filters:
+            var sqlType = if filter.fieldIsNumber: "REAL" else: "TEXT"
+            var sqlName = filter.field & "_" & sqlType
+            
+            db.createIndexableColumnForField(filter.field, sqlName, sqlType)
+            
+            if addedFirst: sqlStr &= " AND "
+            addedFirst = true
+            
+            sqlStr &= "\"" & sqlName & "\" " & filter.operation & " ?"
+            bindValues.add(filter.value)
+    
+    # Combine bind values (index columns first, then filter values)
+    var allBindValues = setValues & bindValues
+    
+    # Execute the query
+    return int db.conn.execAffectedRows(sql(sqlStr), allBindValues)
+
+
+## Helper: Update a document with the specified ID. Returns true if the document was updated, or false if no document was found with this ID.
+proc update*(this: SimpleDB, id: string, updates: JsonNode): bool {.discardable.} =
+    let numUpdated = this.query().where("id", "==", id).limit(1).update(updates)
+    return if numUpdated > 0: true else: false
+
 ## Put a new document into the database, or replace it if it already exists
 proc writeDocument(this: SimpleDB, document: JsonNode) =
 

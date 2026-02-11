@@ -36,6 +36,14 @@ var docs = db.query()
     .offset(2)
     .list()
 
+# Update a specific document by ID
+db.update("1234", %* { "text": "Updated text!", "views": 42 })
+
+# Update multiple documents matching a query
+db.query()
+    .where("type", "==", "example")
+    .update(%* { "status": "archived" })
+
 # Delete documents
 db.remove("1234")
 db.query().where("type", "==", "example").remove()

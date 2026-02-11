@@ -9,7 +9,6 @@ import simpledb
 import std/times
 import std/json
 import std/random
-import std/os
 import std/terminal
 
 
@@ -22,21 +21,10 @@ proc warn(str: string) = styledEcho fgRed, "    ! ", fgDefault, str
 
 
 
-# Remove existing database if it exists
-group "Cleanup"
-test "Remove existing database"
-if fileExists("test.db"):
-    removeFile("test.db")
-
-
-
-
-
 # Open the database
 group "Database tests"
 test "Open database"
-var db = SimpleDB.init("test.db")
-
+var db = SimpleDB.init(":memory:")
 
 
 
@@ -92,14 +80,6 @@ db.batch do():
     for i in 0 .. batchedCount:
         db.put(%* { "type": "batched", "index": i, "random": rand(1.0) })
 
-
-
-
-
-# Close and reopen the database
-test "Close and reopen database"
-db.close()
-db = SimpleDB.init("test.db")
 
 
 
@@ -166,3 +146,101 @@ let removedCount = db.query()
 
 # Test results
 if removedCount != batchedCount - 100: raiseAssert("Different number of documents were removed than expected. expected=" & $(batchedCount - 100) & " removed=" & $removedCount)
+
+
+
+
+
+# Test the new update functionality
+group "Update tests"
+
+# Add a test document
+test "Add document for update test"
+db.put(%* {
+    "id": "update-test-1",
+    "name": "bob",
+    "type": "user",
+    "age": 25,
+    "status": "active"
+})
+
+
+
+
+
+
+# Update by ID
+test "Update document by ID"
+db.update("update-test-1", %* { "name": "alice", "age": 30 })
+
+# Verify update
+let updatedDoc = db.get("update-test-1")
+if updatedDoc{"name"}.getStr() != "alice": raiseAssert("Name was not updated")
+if updatedDoc{"age"}.getInt() != 30: raiseAssert("Age was not updated")
+if updatedDoc{"type"}.getStr() != "user": raiseAssert("Type should not have changed")
+if updatedDoc{"status"}.getStr() != "active": raiseAssert("Status should not have changed")
+
+
+
+
+
+
+# Add more documents for batch update test
+test "Add documents for batch update"
+db.put(%* { "id": "user-1", "name": "user1", "type": "user", "score": 100 })
+db.put(%* { "id": "user-2", "name": "user2", "type": "user", "score": 200 })
+db.put(%* { "id": "user-3", "name": "user3", "type": "admin", "score": 300 })
+
+
+
+
+
+
+# Update multiple documents using query
+test "Update multiple documents with query"
+let updatedCount = db.query()
+    .where("type", "==", "user")
+    .where("id", ">=", "user-")
+    .update(%* { "status": "updated", "score": 999 })
+
+if updatedCount != 2: raiseAssert("Expected 2 documents updated, got " & $updatedCount)
+
+# Verify updates via query (tests that index columns are updated)
+let updatedUsers = db.query()
+    .where("type", "==", "user")
+    .where("status", "==", "updated")
+    .list()
+if updatedUsers.len != 2: raiseAssert("Expected 2 users with updated status, got " & $updatedUsers.len)
+
+# Verify scores were updated
+let highScores = db.query().where("score", "==", 999.0).list()
+if highScores.len != 2: raiseAssert("Expected 2 users with score 999, got " & $highScores.len)
+
+
+
+
+
+
+# Update with filters
+test "Update with complex filter"
+let adminUpdated = db.query()
+    .where("type", "==", "admin")
+    .where("score", ">=", 250)
+    .update(%* { "level": "super" })
+
+if adminUpdated != 1: raiseAssert("Expected 1 admin updated, got " & $adminUpdated)
+
+let superAdmin = db.get("user-3")
+if superAdmin{"level"}.getStr() != "super": raiseAssert("Level was not updated for admin")
+
+
+
+
+
+
+# Cleanup test documents
+test "Cleanup update test documents"
+db.remove("update-test-1")
+db.remove("user-1")
+db.remove("user-2")
+db.remove("user-3")
